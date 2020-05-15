@@ -3,8 +3,8 @@
 ## Purpose
 
 Allow filtering of requests against a UNIX domain socket by surfacing a new
-UNIX domain socket that mantles specifically permitted HTTP request privileges
-to the underlying API served by the socket
+UNIX domain socket that mantles specific HTTP request privileges granted to the
+underlying API served by the socket
 
 ## Building
 
@@ -37,12 +37,42 @@ Invoke the executable as follows:
 unix-socket-http-veil <path-to-target-socket> <path-to-exposed-api-socket> <path-to-access-rules-list>
 ```
 
-Issue client requests against the new socket as follows -- cURL is only used as
+Issue client requests against the new, exposed socket as follows -- cURL is only used as
 an example, but any language ecosystem that supports communication with UNIX
 domain sockets can be substituted here.
+
+The exposed socket will accept any requests but may refuse to respond to certain
+requests if they are not specifically whitelisted in the
+[access rules list](#access-rules-list).
 
 #### HTTP Request
 
 ```
 curl -H "Content-Type: application/json" --unix-socket <path-to-exposed-api-socket> -X GET http://localhost/<http-request-path>
 ```
+
+### Access Rules List
+
+An "access rules list" file must be provided to specify which HTTP request
+method types and request paths are allowed against the veiled target UNIX
+domain socket. If the file is empty, no HTTP requests to any paths will be
+issued to the target socket.
+
+
+#### Format
+
+* Every allowance rule must be separated by a new line
+* There can only be one allowance rule per line
+* Each allowance rule must specify the HTTP Method and Request Path (relative to root)
+  * The `~` character should be used to separate the HTTP Method and Request Path for each rule
+* Only the following HTTP Methods are supported for allowance rule creation:
+  * `GET`
+  * `POST`
+  * `DELETE`
+  * `PATCH`
+  * `PUT`
+
+#### Example
+
+An [example file](example/accessRulesList.txt.example) demonstrates the format
+to expose HTTP `GET` methods against two different request paths.
