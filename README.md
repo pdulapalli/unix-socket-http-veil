@@ -15,6 +15,14 @@ Please ensure that you have a working installation of Docker. Locate the
 relevant instructions for your Operating System at
 [the official Docker website](https://docs.docker.com/install).
 
+
+### Ubuntu/Debian Targets
+```
+docker pull golang:1.14.2-alpine
+docker run -t -v $(pwd):/workenv -w /workenv golang:1.14.2-stretch go build src/veil.go
+```
+
+### Alpine Linux Targets
 ```
 docker pull golang:1.14.2-alpine
 docker run -t -v $(pwd):/workenv -w /workenv golang:1.14.2-alpine go build src/veil.go
