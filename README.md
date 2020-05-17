@@ -18,7 +18,7 @@ relevant instructions for your Operating System at
 
 ### Ubuntu/Debian Targets
 ```
-docker pull golang:1.14.2-alpine
+docker pull golang:1.14.2-stretch
 docker run -t -v $(pwd):/workenv -w /workenv golang:1.14.2-stretch go build src/veil.go
 ```
 
