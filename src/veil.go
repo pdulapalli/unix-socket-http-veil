@@ -31,9 +31,17 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/thoas/go-funk"
 )
 
 const accessRuleStringDelimiter string = "~"
+const unauthorizedMsgString string = "{\"type\":\"error\",\"status-code\":401,\"status\":\"Unauthorized\",\"result\":{\"message\":\"access denied\"}}"
+const unknownMsgString string = "{\"type\":\"error\",\"status-code\":404,\"status\":\"Not Found\",\"result\":{\"message\":\"not found\"}}"
+const badRequestString string = "{\"type\":\"error\",\"status-code\":400,\"status\":\"Invalid Request\",\"result\":{\"message\":\"bad request\"}}"
+const requestTimeoutString string = "{\"type\":\"error\",\"status-code\":408,\"status\":\"Request Timeout\",\"result\":{\"message\":\"request timed out\"}}"
+const internalErrorString string = "{\"type\":\"error\",\"status-code\":500,\"status\":\"Internal Server Error\",\"result\":{\"message\":\"internal server error\"}}"
 
 // createUnixSocketHTTPClient : Returns a handle to a function that can field and
 // filter incoming requests
@@ -47,15 +55,9 @@ func createUnixSocketHTTPClient(unixSocketPath string) *http.Client {
 	}
 }
 
-// obtainRequestHandler : Returns a handle to a function that can field and
+// obtainSocketRequestHandler : Returns a handle to a function that can field and
 // filter incoming requests
-func obtainRequestHandler(targetSocketPath string, accessRulesMap map[string][]string) func(w http.ResponseWriter, r *http.Request) {
-	const unauthorizedMsgString string = "{\"type\":\"error\",\"status-code\":401,\"status\":\"Unauthorized\",\"result\":{\"message\":\"access dEEEEEenied\",\"kind\":\"login-required\"}}"
-	const unknownMsgString string = "{\"type\":\"error\",\"status-code\":404,\"status\":\"Not Found\",\"result\":{\"message\":\"not found\"}}"
-	const badRequestString string = "{\"type\":\"error\",\"status-code\":400,\"status\":\"Invalid Request\",\"result\":{\"message\":\"bad request\"}}"
-	const requestTimeoutString string = "{\"type\":\"error\",\"status-code\":408,\"status\":\"Request Timeout\",\"result\":{\"message\":\"request timed out\"}}"
-	const internalErrorString string = "{\"type\":\"error\",\"status-code\":500,\"status\":\"Internal Server Error\",\"result\":{\"message\":\"internal server error\"}}"
-
+func obtainSocketRequestHandler(targetSocketPath string) func(w http.ResponseWriter, r *http.Request) {
 	var socketHTTPClientPtr *http.Client = createUnixSocketHTTPClient(targetSocketPath)
 
 	// Fields and filters incoming requests, then relays those as
@@ -74,22 +76,6 @@ func obtainRequestHandler(targetSocketPath string, accessRulesMap map[string][]s
 		case http.MethodPatch:
 			fallthrough
 		case http.MethodPut:
-			accessRulesForMethodType, accessRulesExist := accessRulesMap[r.Method]
-			if !accessRulesExist {
-				io.WriteString(w, unauthorizedMsgString)
-				return
-			}
-
-			requestAllowanceRuleIndex := sort.SearchStrings(accessRulesForMethodType, r.URL.Path)
-
-			// NOTE: Golang Binary Search returns the length of the slice if
-			// the desired element cannot be found.
-			if requestAllowanceRuleIndex == len(accessRulesForMethodType) ||
-				accessRulesForMethodType[requestAllowanceRuleIndex] != r.URL.Path {
-				io.WriteString(w, unauthorizedMsgString)
-				return
-			}
-
 			httpRequest, errReqCreate := http.NewRequest(r.Method, requestPath, r.Body)
 			if errReqCreate != nil {
 				io.WriteString(w, internalErrorString)
@@ -110,6 +96,14 @@ func obtainRequestHandler(targetSocketPath string, accessRulesMap map[string][]s
 			io.WriteString(w, badRequestString)
 		}
 	}
+}
+
+func unknownRequestHandler(w http.ResponseWriter, r *http.Request) {
+	io.WriteString(w, unknownMsgString)
+}
+
+func forbiddenRequestHandler(w http.ResponseWriter, r *http.Request) {
+	io.WriteString(w, unauthorizedMsgString)
 }
 
 func createUnixSocketListener(socketPath string) net.Listener {
@@ -156,8 +150,8 @@ func readFileLines(filepath string) []string {
 }
 
 // determineAccessRules : Computes a key-value map that describes what HTTP
-// requests will be made accessible. Each element in the mapping is from an HTTP
-// method type to a list of resource paths.
+// requests will be made accessible. Each element in the mapping is from a
+// resource path to a list of HTTP method types.
 func determineAccessRules(accessRulesList []string) map[string][]string {
 	var accessRulesMap = make(map[string][]string)
 
@@ -169,19 +163,19 @@ func determineAccessRules(accessRulesList []string) map[string][]string {
 
 		var ruleHTTPMethod string = splitRule[0]
 		var ruleResourcePath string = splitRule[1]
-		_, exists := accessRulesMap[ruleHTTPMethod]
+		_, exists := accessRulesMap[ruleResourcePath]
 		if !exists {
-			accessRulesMap[ruleHTTPMethod] = []string{}
+			accessRulesMap[ruleResourcePath] = []string{}
 		}
 
-		var accessRulesForMethod []string = accessRulesMap[ruleHTTPMethod]
-		accessRulesMap[ruleHTTPMethod] = append(accessRulesForMethod, ruleResourcePath)
+		var accessRulesForPath []string = accessRulesMap[ruleResourcePath]
+		accessRulesMap[ruleResourcePath] = append(accessRulesForPath, ruleHTTPMethod)
 	}
 
-	for accessRulesMethod := range accessRulesMap {
-		accessRulesList := accessRulesMap[accessRulesMethod]
-		sort.Strings(accessRulesList)
-		accessRulesMap[accessRulesMethod] = accessRulesList
+	for accessRulesPath := range accessRulesMap {
+		accessRulesListForPath := accessRulesMap[accessRulesPath]
+		sort.Strings(accessRulesListForPath)
+		accessRulesMap[accessRulesPath] = funk.UniqString(accessRulesListForPath)
 	}
 
 	return accessRulesMap
@@ -203,9 +197,21 @@ func main() {
 
 	log.Println("Launching Unix Socket HTTP Server...")
 
+	incomingRequestRouter := mux.NewRouter()
+	incomingRequestRouter.MethodNotAllowedHandler = http.HandlerFunc(forbiddenRequestHandler)
+	incomingRequestRouter.NotFoundHandler = http.HandlerFunc(unknownRequestHandler)
+
+	socketRequestHandler := obtainSocketRequestHandler(targetSocketPath)
+	accessRules := determineAccessRules(readFileLines(accessRulesFilepath))
+	for accessRulesPath := range accessRules {
+		accessRulesMethodsForPath := accessRules[accessRulesPath]
+		incomingRequestRouter.HandleFunc(accessRulesPath, socketRequestHandler).
+			Methods(accessRulesMethodsForPath...)
+	}
+
 	var apiAccessHTTPServer http.Server
 	apiAccessHTTPServer = http.Server{
-		Handler: http.HandlerFunc(obtainRequestHandler(targetSocketPath, determineAccessRules(readFileLines(accessRulesFilepath)))),
+		Handler: incomingRequestRouter,
 	}
 
 	apiAccessHTTPServer.Serve(createUnixSocketListener(exposedSocketPath))
