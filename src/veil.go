@@ -28,6 +28,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -108,6 +109,18 @@ func forbiddenRequestHandler(w http.ResponseWriter, r *http.Request) {
 
 func createUnixSocketListener(socketPath string) net.Listener {
 	os.RemoveAll(socketPath)
+
+	socketParentDirPath := filepath.Dir(socketPath)
+	_, err := os.Stat(socketParentDirPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			panic(err)
+		}
+
+		if err := os.MkdirAll(socketParentDirPath, os.ModeDir); err != nil {
+			panic(err)
+		}
+	}
 
 	unixListener, err := net.Listen("unix", socketPath)
 	if err != nil {
