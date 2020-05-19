@@ -19,13 +19,13 @@ relevant instructions for your Operating System at
 ### Ubuntu/Debian Targets
 ```
 docker pull golang:1.14.2-stretch
-docker run -t -v $(pwd):/workenv -w /workenv golang:1.14.2-stretch go build src/veil.go
+docker run -t -v $(pwd):/workenv -w /workenv golang:1.14.2-stretch go build -o unix-socket-http-veil src/veil.go
 ```
 
 ### Alpine Linux Targets
 ```
 docker pull golang:1.14.2-alpine
-docker run -t -v $(pwd):/workenv -w /workenv golang:1.14.2-alpine go build src/veil.go
+docker run -t -v $(pwd):/workenv -w /workenv golang:1.14.2-alpine go build -o unix-socket-http-veil src/veil.go
 ```
 
 If the above commands are successful, an executable named `veil` should
