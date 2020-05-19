@@ -117,7 +117,7 @@ func createUnixSocketListener(socketPath string) net.Listener {
 			panic(err)
 		}
 
-		if err := os.MkdirAll(socketParentDirPath, os.ModeDir); err != nil {
+		if err := os.MkdirAll(socketParentDirPath, 0755); err != nil {
 			panic(err)
 		}
 	}
@@ -228,4 +228,5 @@ func main() {
 	}
 
 	apiAccessHTTPServer.Serve(createUnixSocketListener(exposedSocketPath))
+	log.Println("Unix Socket HTTP Server started!")
 }
